@@ -535,7 +535,12 @@ async function getTexturesForToken(token, baseTexture) {
     meta: { size: { w, h }, scale: 1 }
   };
 
-  styleConfig.generator(spriteData, spriteData, frameCount);
+  // Bug fix: generator signature is (data, spriteData, frames).
+  // data supplies meta.size (image dimensions); spriteData is populated by the generator.
+  // Previously both args were spriteData, so meta.size was read from the object
+  // being mutated, producing NaN frame dimensions for many sheet styles.
+  const sheetData = { meta: { size: { w, h }, scale: 1 } };
+  styleConfig.generator(sheetData, spriteData, frameCount);
 
   // Build PIXI spritesheet
   // V14 uses PIXI v8: PIXI.Spritesheet constructor is the same but resource loading differs
@@ -1195,9 +1200,24 @@ async function onRenderTokenConfig(app, html, context) {
         form.appendChild(input);
       }
 
-      // Compute anchor from texture
-      const tex = await foundry.canvas.loadTexture(src, { fallback: CONST.DEFAULT_TOKEN });
-      const { width: tw, height: th } = tex ?? {};
+      // Compute anchor from texture.
+      // Bug fix: loadTexture on a missing/empty src can hang indefinitely, blocking
+      // the canvas input thread and causing scroll/zoom to freeze when dragging a token.
+      // Guard against empty src and race the load against a short timeout.
+      let tw, th;
+      if (src) {
+        try {
+          const texResult = await Promise.race([
+            foundry.canvas.loadTexture(src, { fallback: CONST.DEFAULT_TOKEN }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("texture load timeout")), 3000))
+          ]);
+          tw = texResult?.width;
+          th = texResult?.height;
+        } catch (e) {
+          console.warn(`Dylan's Animated Tokens: texture load skipped — ${e.message}`);
+        }
+      }
+      if (!tw || !th) { return; } // can't compute anchor without dimensions
       if (tw && th) {
         const defaultRatio = styleConfig?.defaultRatio ?? 4 / animationframes;
         const ratio = (th / tw) * defaultRatio;
