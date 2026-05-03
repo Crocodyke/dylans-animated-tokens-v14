@@ -468,10 +468,25 @@ function genTDSMBase(data, spriteData, numFrames, rowOrder) {
   });
 }
 
+// Pokemon-style: 8 rows in order S SE E NE N NW W SW, N frames per row
+function genPokemon(data, spriteData, numFrames) {
+  const dirs = ["down", "downright", "right", "upright", "up", "upleft", "left", "downleft"];
+  const [fw, fh] = [data.meta.size.w / numFrames, data.meta.size.h / 8];
+  dirs.forEach((dir, row) => {
+    spriteData.animations[dir] ??= [];
+    for (let col = 0; col < numFrames; col++) {
+      const key = `pokemon_${dir}_${col}`;
+      spriteData.animations[dir].push(key);
+      spriteData.frames[key] = { frame: { x: fw * col, y: fh * row, w: fw, h: fh }, sourceSize: { w: fw, h: fh }, spriteSourceSize: { x: 0, y: 0, w: fw, h: fh } };
+    }
+  });
+}
+
 // Populate SHEET_STYLES
 buildSheetStyle("dlru", "DLRU", undefined, null, null, null, genDLRU);
 buildSheetStyle("durlreduced", "DURLReduced", undefined, null, null, null, genDURLReduced);
 buildSheetStyle("eight", "Eight", undefined, null, 0.5, null, gen8Dir);
+buildSheetStyle("pokemon", "Pokemon", 6, null, 0.5, null, genPokemon);
 buildSheetStyle("diagonal", "Diagonal", undefined, null, null, null, genDiagonal);
 buildSheetStyle("nihey", "Nihey", 4, null, null, null, genNihey);
 buildSheetStyle("universallpc", "UniversalLPC", undefined, null, null, null, genUniversalLPC);
@@ -904,8 +919,12 @@ function registerTokenClass() {
         const ay = Math.abs((changed.y ?? origin.y) - origin.y) * scale / sizeY;
         const rawFrame = changed.frame !== undefined ? ~~changed.frame : ~~(ax + ay - Math.min(ax, ay) / 2);
 
-        const dx = (context?.to?.x ?? changed.x ?? 0) - (changed.x ?? context?.to?.x ?? 0);
-        const dy = (context?.to?.y ?? changed.y ?? 0) - (changed.y ?? context?.to?.y ?? 0);
+        // Compute direction from _origin to the animation destination.
+        // The previous code compared a value to itself, always producing dx=dy=0.
+        const destX = context?.to?.x ?? changed.x ?? origin.x;
+        const destY = context?.to?.y ?? changed.y ?? origin.y;
+        const dx = destX - origin.x;
+        const dy = destY - origin.y;
 
         if (changed.frame != null) {
           this.#isIdle = true;
@@ -918,7 +937,7 @@ function registerTokenClass() {
           this.#frameIndex = rawFrame;
         } else if (dx !== 0 || dy !== 0) {
           this.#isIdle = false;
-          this.#direction = rotationToDirection(changed.rotation ?? this.document.rotation);
+          this.#direction = deltaToDirection(dx, dy);
           this.#frameIndex = rawFrame;
         } else {
           this.#isIdle = true;
